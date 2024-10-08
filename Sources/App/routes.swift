@@ -5,7 +5,13 @@ func routes(_ app: Application) throws {
         "It works!"
     }
 
-    app.get("hello") { req async -> String in
-        "Hello, world!"
+// curl \
+//   -H "Authorization: Bearer TOKEN" \
+//   -H "Content-Type: application/json" \
+//   http://IP_ADDRESS:8123/ENDPOINT
+
+    app.post { req async in
+        req.client
+        return 200
     }
 }
