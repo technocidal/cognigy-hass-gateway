@@ -1,31 +1,53 @@
 import Vapor
 
 func routes(_ app: Application) throws {
-    app.get { req async in
-        "It works!"
-    }
-
-    //    curl \
-    //      -H "Authorization: Bearer TOKEN \
-    //      -H "Content-Type: application/json" \
-    //      -d '{"entity_id": "light.elgato_key_light_air_9d2c" }' \
-    //      http://192.168.1.121:8123/api/services/switch/turn_on
-
-    struct EntityInformation: Content {
-        let entity_id: String
-    }
-
-    app.post { req async throws in
+    
+    app.get { req async throws in
         guard let token = Environment.get("HASS_TOKEN") else {
-            return 500
+            throw Abort(.internalServerError)
         }
-        let entityInformation = EntityInformation(entity_id: "light.elgato_key_light_air_9d2c")
-        return try await req.client.post(
-            "http://192.168.1.121:8123/api/services/light/turn_on",
-            headers: [
-                "Authorization": "Bearer \(token)",
-                "Content-Type": "application/json",
-            ], content: entityInformation)
-        return 200
+        
+        guard let server = Environment.get("HASS_SERVER") else {
+            throw Abort(.internalServerError)
+        }
+        
+        do {
+            req.logger.info("Querying HASS")
+            let response = try await req.client.get(
+                "http://\(server)/api/states",
+                headers: [
+                    "Authorization": "Bearer \(token)",
+                    "Content-Type": "application/json",
+                ])
+            req.logger.info("Successfully queried HASS")
+            let states = try response.content.decode([EntityLight].self)
+                .filter { $0.entityId.hasPrefix("light") }
+                .filter {
+                    $0.attributes?.friendlyName != nil
+                }
+            return states
+        } catch {
+            req.logger.error("\(error)")
+            throw Abort(.internalServerError)
+        }
+    }
+    
+    app.post(":entity") { req async throws in
+        guard let token = Environment.get("HASS_TOKEN") else {
+            throw Abort(.internalServerError)
+        }
+        
+        guard let entityId = req.parameters.get("entity") else {
+            throw Abort(.internalServerError)
+        }
+        
+        let command = try req.content.decode(EntityLightCommand.self)
+        if command.newState == "on" {
+            _ = try await req.client.turnOnLight(with: entityId)
+        } else {
+            _ = try await req.client.turnOffLight(with: entityId)
+        }
+        
+        return HTTPStatus.ok
     }
 }
